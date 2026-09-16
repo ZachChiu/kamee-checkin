@@ -108,6 +108,32 @@
   .rw-tag{margin-left:auto;font-size:11.5px;font-weight:700;color:var(--ink-soft)}
   .rw-item.got .rw-tag{color:var(--teal-deep)}
 
+  /* reminder */
+  .remind{display:flex;align-items:center;gap:12px;background:#fff;border-radius:14px;
+    padding:12px 16px;box-shadow:0 6px 18px rgba(62,166,166,.08);margin-top:14px}
+  .remind .t{font-size:13px;font-weight:800}
+  .remind .s{font-size:11px;color:var(--ink-soft)}
+  .sw{margin-left:auto;width:46px;height:27px;border-radius:99px;background:var(--sand);border:none;
+    position:relative;cursor:pointer;transition:background .2s;flex:none}
+  .sw::after{content:'';position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;
+    background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .sw.on{background:var(--teal)}
+  .sw.on::after{transform:translateX(19px)}
+
+  /* modal */
+  .mask{position:fixed;inset:0;background:rgba(46,74,74,.45);display:flex;align-items:center;
+    justify-content:center;padding:24px;z-index:9}
+  .modal{background:#fff;border-radius:22px;padding:26px 22px 18px;width:100%;max-width:320px;
+    text-align:center;box-shadow:0 18px 40px rgba(46,74,74,.25)}
+  .m-ico{font-size:40px;line-height:1}
+  .modal h2{font-size:18px;font-weight:800;margin:8px 0 6px}
+  .modal p{font-size:13px;color:var(--ink-soft);margin-bottom:16px;white-space:pre-line}
+  .m-code{display:inline-block;font-size:15px;font-weight:800;letter-spacing:2px;color:var(--teal-deep);
+    background:var(--teal-soft);border-radius:10px;padding:8px 16px;margin-bottom:16px}
+  .m-no{background:none;border:none;font-family:inherit;font-size:12.5px;color:var(--ink-soft);
+    margin-top:12px;cursor:pointer;text-decoration:underline}
+
+  .rw-code{font-size:11.5px;font-weight:800;color:var(--teal-deep);letter-spacing:1px}
   .hide{display:none}
   .foot{text-align:center;font-size:11px;color:var(--ink-soft);padding:4px 0 10px;opacity:.8}
   .enc{text-align:center;font-size:13px;color:var(--teal-deep);font-weight:700;min-height:18px;opacity:0;transition:opacity .4s}
@@ -156,6 +182,14 @@
       <button class="btn" id="btn">我今天吃了 ✓</button>
       <div class="enc" id="enc"></div>
 
+      <div class="remind">
+        <div>
+          <div class="t">🔔 每天 09:00 提醒</div>
+          <div class="s" id="remindSub">還沒開啟</div>
+        </div>
+        <button class="sw" id="remindSw" aria-label="開啟每日提醒"></button>
+      </div>
+
       <div class="cal" style="margin-top:14px">
         <div class="cal-head">
           <button id="prev" aria-label="上個月">‹</button>
@@ -177,11 +211,28 @@
     <div class="foot">KAMEE 客製化保健品智能服務</div>
   </div>
 
+  <div class="mask hide" id="mask">
+    <div class="modal">
+      <div class="m-ico" id="mIco"></div>
+      <h2 id="mTitle"></h2>
+      <p id="mBody"></p>
+      <div class="m-code hide" id="mCode"></div>
+      <button class="btn" id="mOk"></button>
+      <button class="m-no hide" id="mNo"></button>
+    </div>
+  </div>
+
 <script src="streak.js"></script>
 <script>
-const KEY='kamee.checkins.v1', NAMEKEY='kamee.name.v1';
-const MILESTONES=[{d:7,ico:'🎁',name:'7 天禮'},{d:14,ico:'🍵',name:'14 天禮'},
-  {d:30,ico:'💎',name:'30 天禮'},{d:60,ico:'🌿',name:'60 天禮'},{d:90,ico:'👑',name:'90 天完賽'}];
+const KEY='kamee.checkins.v1', NAMEKEY='kamee.name.v1',
+      REMIND_KEY='kamee.remind.v1', INSTALL_KEY='kamee.install.v1', ASKED_KEY='kamee.notifyAsked.v1';
+const REMIND_HOUR=9;
+const MILESTONES=[
+  {d:7, ico:'🎁',name:'7 天禮',   code:'KAMEE7',  gift:'下次回購 9 折'},
+  {d:14,ico:'🍵',name:'14 天禮',  code:'KAMEE14', gift:'加贈體驗包 1 包'},
+  {d:30,ico:'💎',name:'30 天禮',  code:'KAMEE30', gift:'免運券 1 張'},
+  {d:60,ico:'🌿',name:'60 天禮',  code:'KAMEE60', gift:'客製配方免費調整'},
+  {d:90,ico:'👑',name:'90 天完賽',code:'KAMEE90', gift:'完賽禮盒'}];
 
 const load=()=>{try{return new Set(JSON.parse(localStorage.getItem(KEY)||'[]'))}catch{return new Set()}};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify([...done].sort()))}catch{}};
@@ -209,8 +260,8 @@ function renderStats(){
     const got=best>=m.d;
     return `<div class="rw-item ${got?'got':''}">
       <div class="rw-ico">${m.ico}</div>
-      <div><div class="rw-name">${m.name}</div>
-        <div class="rw-sub">連續 ${m.d} 天解鎖</div></div>
+      <div><div class="rw-name">${m.name} · ${m.gift}</div>
+        ${got?`<div class="rw-code">${m.code}</div>`:`<div class="rw-sub">連續 ${m.d} 天解鎖</div>`}</div>
       <div class="rw-tag">${got?'已解鎖':`還差 ${m.d-best} 天`}</div>
     </div>`;
   }).join('');
@@ -232,20 +283,24 @@ function renderCal(){
     b.className='cell'; b.textContent=d;
     if(done.has(s))b.classList.add('done');
     if(s===todayStr)b.classList.add('today');
-    if(s>todayStr){b.classList.add('future');b.disabled=true}
-    else b.onclick=()=>toggle(s);
+    if(s>todayStr)b.classList.add('future');
+    b.disabled=true;                                   // 只能用按鈕打當天的卡
     grid.appendChild(b);
   }
 }
 
-function toggle(s){
-  if(s>todayStr)return;
-  if(done.has(s))done.delete(s); else done.add(s);
-  save();
+function checkIn(){
+  const today=ymd(new Date());
+  if(today!==todayStr){ location.reload(); return }      // 跨過午夜，重載換成新的一天
+  if(!canCheckIn(done,today,todayStr)) return;
+  done.add(today); save(); syncSw();
   renderStats();renderCal();
+  const m=earnedMilestone(streaks(done).cur,MILESTONES);
+  if(m) reward(m);
+  else if(localStorage.getItem(ASKED_KEY)!=='1') askNotify();
 }
 
-btn.onclick=()=>toggle(todayStr);
+btn.onclick=checkIn;
 prev.onclick=()=>{view.setMonth(view.getMonth()-1);renderCal()};
 next.onclick=()=>{view.setMonth(view.getMonth()+1);renderCal()};
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
@@ -264,7 +319,122 @@ hello.onclick=()=>{
 };
 
 const cur_=document.getElementById('cur'), best_=document.getElementById('best');
-renderName();renderStats();renderCal();
+
+/* ---------- modal（獎勵 / 安裝 / 通知共用一個） ---------- */
+let modalOpen=false;
+function openModal({ico,title,body,code,ok,onOk,no,onNo}){
+  modalOpen=true;
+  mIco.textContent=ico; mTitle.textContent=title; mBody.textContent=body;
+  mCode.textContent=code||''; mCode.classList.toggle('hide',!code);
+  mOk.textContent=ok;
+  mOk.onclick=()=>{closeModal(); onOk&&onOk()};
+  mNo.textContent=no||''; mNo.classList.toggle('hide',!no);
+  mNo.onclick=()=>{closeModal(); onNo&&onNo()};
+  mask.classList.remove('hide');
+}
+function closeModal(){mask.classList.add('hide');modalOpen=false}
+
+function reward(m){
+  openModal({ico:m.ico,title:`連續 ${m.d} 天，達成！`,
+    body:`獎勵：${m.gift}\n下單時輸入這組代碼`,code:m.code,ok:'收下獎勵 ✓',
+    onOk:()=>{ if(localStorage.getItem(ASKED_KEY)!=='1') askNotify() }});
+}
+
+/* ---------- 每天 09:00 提醒 ---------- */
+// ponytail: 沒有後端 push，靠前景計時器 + periodic sync；要準時到秒需要 Web Push 伺服器
+const canNotify='Notification' in window;
+const remindOn=()=>localStorage.getItem(REMIND_KEY)==='on'&&canNotify&&Notification.permission==='granted';
+
+function renderRemind(){
+  remindSw.classList.toggle('on',remindOn());
+  remindSub.textContent = !canNotify ? '這個瀏覽器不支援通知'
+    : Notification.permission==='denied' ? '已被封鎖，請到瀏覽器設定開啟'
+    : remindOn() ? '開啟中，沒打卡就會提醒你' : '還沒開啟';
+}
+
+async function enableRemind(){
+  if(!canNotify) return;
+  if(Notification.permission==='default') await Notification.requestPermission();
+  if(Notification.permission!=='granted'){renderRemind();return}
+  localStorage.setItem(REMIND_KEY,'on');
+  const reg=await navigator.serviceWorker?.ready.catch(()=>null);
+  if(reg?.periodicSync){                       // 已安裝的 PWA 才拿得到，關掉頁面也可能觸發
+    try{ await reg.periodicSync.register('daily-checkin',{minInterval:12*60*60*1000}) }catch{}
+  }
+  schedule(); renderRemind();
+}
+
+function nextRemindAt(){
+  const now=new Date(), t=new Date(now);
+  t.setHours(REMIND_HOUR,0,0,0);
+  if(t<=now) t.setDate(t.getDate()+1);
+  return t;
+}
+let timer;
+function schedule(){
+  clearTimeout(timer);
+  if(!remindOn()) return;
+  timer=setTimeout(async()=>{
+    if(!load().has(ymd(new Date()))) await notify();
+    schedule();
+  }, nextRemindAt()-Date.now());
+}
+async function notify(){
+  const opt={body:'今天還沒打卡，記得吃保健品 🌿',icon:'icons/icon-192.png',
+    badge:'icons/icon-192.png',tag:'kamee-daily'};
+  const reg=await navigator.serviceWorker?.getRegistration().catch(()=>null);
+  if(reg) reg.showNotification('KAMEE 打卡提醒',opt); else new Notification('KAMEE 打卡提醒',opt);
+}
+remindSw.onclick=()=>{
+  if(remindOn()){ localStorage.setItem(REMIND_KEY,'off'); clearTimeout(timer); renderRemind() }
+  else enableRemind();
+};
+function askNotify(){
+  if(!canNotify||Notification.permission!=='default'||modalOpen) return;
+  localStorage.setItem(ASKED_KEY,'1');
+  openModal({ico:'🔔',title:'每天早上提醒你',
+    body:'早上 9:00 提醒打卡，避免斷了連續紀錄。',ok:'開啟提醒',no:'先不要',
+    onOk:enableRemind});
+}
+
+/* ---------- 加到主畫面 ---------- */
+const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+let deferredPrompt=null;
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;queueInstall()});
+// 慢兩秒再跳，先讓使用者看到今天的狀態；有別的 modal 開著就等下次進來
+const queueInstall=()=>setTimeout(askInstall,2000);
+
+function askInstall(){
+  if(standalone||localStorage.getItem(INSTALL_KEY)==='no'||modalOpen) return;
+  openModal({ico:'📲',title:'加到主畫面',
+    body: deferredPrompt ? '像 App 一樣一鍵打開，離線也能看紀錄。'
+      : '點瀏覽器的「分享」→「加入主畫面」，就能像 App 一樣打開。',
+    ok: deferredPrompt?'加入 ✓':'我知道了', no:'以後再說',
+    onOk: async()=>{
+      if(!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const {outcome}=await deferredPrompt.userChoice;
+      deferredPrompt=null;
+      if(outcome==='accepted') localStorage.setItem(INSTALL_KEY,'yes');
+    },
+    onNo:()=>localStorage.setItem(INSTALL_KEY,'no')});
+}
+// iOS 沒有 beforeinstallprompt，改成延遲跳手動加入說明
+if(isIOS&&!standalone) queueInstall();
+
+/* 把今天是否打卡寫進 cache，讓 service worker 背景提醒時讀得到 */
+function syncSw(){
+  caches?.open('kamee-state')
+    .then(c=>c.put('./state',new Response(JSON.stringify({last:ymd(new Date())}))))
+    .catch(()=>{});
+}
+
+renderName();renderStats();renderCal();renderRemind();schedule();
+if(done.has(todayStr)) syncSw();
+
+// 跨過午夜時重新整理，避免日期停在昨天
+setInterval(()=>{ if(ymd(new Date())!==todayStr) location.reload() },60000);
 
 if('serviceWorker' in navigator) addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));
 </script>

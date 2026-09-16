@@ -16,4 +16,14 @@ function streaks(done, today = new Date()){
   }
   return {cur,best};
 }
-if (typeof module !== 'undefined') module.exports = {ymd, parseYmd, streaks};
+// 只能打當天的卡，且一天只能打一次
+function canCheckIn(done, dateStr, todayStr){
+  return dateStr === todayStr && !done.has(dateStr);
+}
+
+// 打卡後剛好踩到的里程碑（沒踩到回 null）
+function earnedMilestone(cur, milestones){
+  return milestones.find(m => m.d === cur) || null;
+}
+
+if (typeof module !== 'undefined') module.exports = {ymd, parseYmd, streaks, canCheckIn, earnedMilestone};

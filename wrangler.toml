@@ -12,7 +12,7 @@ crons = ["0 * * * *"]
 
 [vars]
 VAPID_SUBJECT = "mailto:awdx8326@gmail.com"
-VAPID_PUBLIC_KEY = "BPKDinnbl-5uSg7tOMRhEctYw9TBm4k7J3yti3tqdUQCPufH83zOn8oQIr8vPI3GYogcMItlD-Ptnfc2RG7aF-c"   # npm run vapid 產生，公鑰可公開
+VAPID_PUBLIC_KEY = "BNf3AqHe1kVuM2HJJTzxtQ7-I6ghQCDmIF6_gFaI6-zYpkZzNTjq3ksGgHnmjkxJEO2BbrgC3YaVyIgVsf8-4Zs"   # npm run vapid 產生，公鑰可公開
 
 # wrangler kv namespace create SUBS 之後把 id 填進來
 [[kv_namespaces]]

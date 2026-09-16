@@ -225,7 +225,8 @@
 <script src="streak.js"></script>
 <script>
 const KEY='kamee.checkins.v1', NAMEKEY='kamee.name.v1',
-      REMIND_KEY='kamee.remind.v1', INSTALL_KEY='kamee.install.v1', ASKED_KEY='kamee.notifyAsked.v1';
+      REMIND_KEY='kamee.remind.v1', INSTALL_KEY='kamee.install.v1', ASKED_KEY='kamee.notifyAsked.v1',
+      UID_KEY='kamee.uid.v1', PUSH_KEY='kamee.push.v1';
 const REMIND_HOUR=9;
 const MILESTONES=[
   {d:7, ico:'🎁',name:'7 天禮',   code:'KAMEE7',  gift:'下次回購 9 折'},
@@ -294,6 +295,7 @@ function checkIn(){
   if(today!==todayStr){ location.reload(); return }      // 跨過午夜，重載換成新的一天
   if(!canCheckIn(done,today,todayStr)) return;
   done.add(today); save(); syncSw();
+  if(pushOn()) api('/api/checkin',{method:'POST',body:JSON.stringify({uid,date:today})});
   renderStats();renderCal();
   const m=earnedMilestone(streaks(done).cur,MILESTONES);
   if(m) reward(m);
@@ -319,6 +321,44 @@ hello.onclick=()=>{
 };
 
 const cur_=document.getElementById('cur'), best_=document.getElementById('best');
+
+/* ---------- 後端（Cloudflare Worker，沒有就自動降級成只有前景提醒） ---------- */
+const uid=(()=>{
+  let v=localStorage.getItem(UID_KEY);
+  if(!v){ v=(crypto.randomUUID?.()||Date.now()+'-'+Math.random().toString(36).slice(2)).replace(/[^a-zA-Z0-9-]/g,'');
+    localStorage.setItem(UID_KEY,v) }
+  return v;
+})();
+const api=(path,init={})=>fetch(path,{headers:{'content-type':'application/json'},...init})
+  .then(r=>r.ok?r.json():null).catch(()=>null);
+const pushOn=()=>localStorage.getItem(PUSH_KEY)==='on';
+const b64ToBytes=s=>{const t=(s+'='.repeat((4-s.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/');
+  return Uint8Array.from(atob(t),c=>c.charCodeAt(0))};
+
+// 訂閱失敗不擋使用者，前景計時器照常運作
+async function subscribePush(){
+  try{
+    const cfg=await api('/api/config');
+    if(!cfg?.vapidPublicKey) return false;
+    const reg=await navigator.serviceWorker.ready;
+    const key=b64ToBytes(cfg.vapidPublicKey);
+    let sub=await reg.pushManager.getSubscription();
+    if(sub && !sub.options?.applicationServerKey) { await sub.unsubscribe(); sub=null }   // 換過金鑰
+    sub=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
+    const r=await api('/api/subscribe',{method:'POST',body:JSON.stringify({
+      uid, subscription:sub.toJSON(), tz:Intl.DateTimeFormat().resolvedOptions().timeZone })});
+    localStorage.setItem(PUSH_KEY, r?.ok?'on':'off');
+    return !!r?.ok;
+  }catch{ localStorage.setItem(PUSH_KEY,'off'); return false }
+}
+async function unsubscribePush(){
+  localStorage.setItem(PUSH_KEY,'off');
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    (await reg.pushManager.getSubscription())?.unsubscribe();
+    await api('/api/subscribe?uid='+uid,{method:'DELETE'});
+  }catch{}
+}
 
 /* ---------- modal（獎勵 / 安裝 / 通知共用一個） ---------- */
 let modalOpen=false;
@@ -349,7 +389,8 @@ function renderRemind(){
   remindSw.classList.toggle('on',remindOn());
   remindSub.textContent = !canNotify ? '這個瀏覽器不支援通知'
     : Notification.permission==='denied' ? '已被封鎖，請到瀏覽器設定開啟'
-    : remindOn() ? '開啟中，沒打卡就會提醒你' : '還沒開啟';
+    : remindOn() ? (pushOn()?'開啟中，每天 09:00 提醒你':'開啟中，但只在這個頁面開著時提醒')
+    : '還沒開啟';
 }
 
 async function enableRemind(){
@@ -357,11 +398,14 @@ async function enableRemind(){
   if(Notification.permission==='default') await Notification.requestPermission();
   if(Notification.permission!=='granted'){renderRemind();return}
   localStorage.setItem(REMIND_KEY,'on');
+  renderRemind();
+  await subscribePush();                       // 有後端就由伺服器在 09:00 推播
   const reg=await navigator.serviceWorker?.ready.catch(()=>null);
-  if(reg?.periodicSync){                       // 已安裝的 PWA 才拿得到，關掉頁面也可能觸發
+  if(reg?.periodicSync){                       // 沒後端時的備援，已安裝的 PWA 才拿得到
     try{ await reg.periodicSync.register('daily-checkin',{minInterval:12*60*60*1000}) }catch{}
   }
   schedule(); renderRemind();
+  if(pushOn()&&done.has(todayStr)) api('/api/checkin',{method:'POST',body:JSON.stringify({uid,date:todayStr})});
 }
 
 function nextRemindAt(){
@@ -386,7 +430,7 @@ async function notify(){
   if(reg) reg.showNotification('KAMEE 打卡提醒',opt); else new Notification('KAMEE 打卡提醒',opt);
 }
 remindSw.onclick=()=>{
-  if(remindOn()){ localStorage.setItem(REMIND_KEY,'off'); clearTimeout(timer); renderRemind() }
+  if(remindOn()){ localStorage.setItem(REMIND_KEY,'off'); clearTimeout(timer); unsubscribePush(); renderRemind() }
   else enableRemind();
 };
 function askNotify(){

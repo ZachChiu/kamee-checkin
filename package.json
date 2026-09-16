@@ -1,0 +1,10 @@
+{
+  "name": "kamee-checkin",
+  "private": true,
+  "scripts": {
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy",
+    "vapid": "node scripts/vapid.mjs",
+    "test": "node test.js && node worker/test.mjs"
+  }
+}

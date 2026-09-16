@@ -47,10 +47,21 @@ async function remind() {
   await c.put('./state', new Response(JSON.stringify({ ...st, notified: today })));
 }
 
+// 伺服器推播（Cloudflare Worker 的 cron 送來）
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {} } catch {}
+  e.waitUntil(self.registration.showNotification(d.title || 'KAMEE 打卡提醒', {
+    body: d.body || '今天還沒打卡，記得吃保健品 🌿',
+    icon: './icons/icon-192.png', badge: './icons/icon-192.png',
+    tag: 'kamee-daily', data: { url: d.url || './' }
+  }));
+});
+
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
     const hit = cs.find(c => c.url.startsWith(self.registration.scope));
-    return hit ? hit.focus() : self.clients.openWindow('./');
+    return hit ? hit.focus() : self.clients.openWindow(e.notification.data?.url || './');
   }));
 });

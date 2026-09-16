@@ -1,6 +1,6 @@
 // node test.js
 const assert=require('assert');
-const {ymd,streaks,canCheckIn,earnedMilestone}=require('./streak.js');
+const {ymd,streaks,canCheckIn,earnedMilestone}=require('./public/streak.js');
 const S=(...d)=>new Set(d);
 const T=new Date(2026,2,10); // 2026-03-10
 

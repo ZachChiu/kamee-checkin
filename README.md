@@ -4,6 +4,7 @@
 cron 每天台灣時間 09:00 對當天沒打卡的人送 Web Push。
 
     public/          前端（Workers 的靜態資產）
+    public/admin.html  後台：一顆按鈕送通知給所有人
     worker/          Worker：API、排程、Web Push 加密
     scripts/vapid.mjs  產生 VAPID 金鑰
     wrangler.toml    Worker、KV、cron 設定
@@ -33,6 +34,15 @@ cron 每天台灣時間 09:00 對當天沒打卡的人送 Web Push。
 
 cron 寫在 `wrangler.toml` 的 `triggers`（每小時一次），部署時一併註冊。
 `VAPID_PRIVATE_KEY` 沒設好的話，`/api/test` 會回 502，前端會顯示送不出去。
+
+## 後台
+
+`/admin.html`，填後台密碼、標題、內容，按一顆按鈕送給所有訂閱者，不看打卡狀態。
+密碼是 Worker 的 Secret `ADMIN_TOKEN`：
+
+    npx wrangler secret put ADMIN_TOKEN
+
+沒設這個 secret 的話 `/api/broadcast` 一律回 401。密碼存在後台頁面那台裝置的 localStorage。
 
 ## 提醒的實際行為
 

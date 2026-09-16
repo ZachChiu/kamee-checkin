@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAMEE 後台</title>
+<link rel="icon" href="icons/icon-192.png">
+<style>
+  :root{--teal:#5FBFBF;--teal-deep:#3EA6A6;--cream:#FBF9F4;--ink:#2E4A4A;--ink-soft:#8AA3A3;--line:#EAE6DC}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:"PingFang TC","Noto Sans TC",sans-serif;background:var(--cream);color:var(--ink);
+    line-height:1.6;display:flex;justify-content:center;padding:24px 18px}
+  .box{width:100%;max-width:420px;display:flex;flex-direction:column;gap:14px}
+  h1{font-size:19px;font-weight:800}
+  .card{background:#fff;border-radius:16px;padding:18px;box-shadow:0 6px 18px rgba(62,166,166,.08);
+    display:flex;flex-direction:column;gap:10px}
+  label{font-size:12px;font-weight:700;color:var(--ink-soft)}
+  input{font-family:inherit;font-size:14px;color:var(--ink);border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px;width:100%}
+  input:focus{outline:2px solid var(--teal);border-color:transparent}
+  button{width:100%;border:none;cursor:pointer;background:var(--teal);color:#fff;font-size:16px;
+    font-weight:800;font-family:inherit;padding:15px;border-radius:12px;
+    box-shadow:0 6px 16px rgba(95,191,191,.35)}
+  button:active{transform:scale(.99)}
+  button:disabled{opacity:.5;cursor:default;box-shadow:none}
+  .out{font-size:13px;white-space:pre-line;min-height:22px;color:var(--teal-deep);font-weight:700}
+  .hint{font-size:11.5px;color:var(--ink-soft)}
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>KAMEE 後台</h1>
+
+    <div class="card">
+      <label for="token">後台密碼</label>
+      <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="current-password">
+      <div class="hint">存在這台裝置的瀏覽器，不會送到別的地方。</div>
+    </div>
+
+    <div class="card">
+      <label for="title">通知標題</label>
+      <input id="title" value="KAMEE 打卡提醒">
+      <label for="body">通知內容</label>
+      <input id="body" value="記得今天的保健品 🌿">
+    </div>
+
+    <button id="send">現在提醒所有人</button>
+    <div class="out" id="out"></div>
+    <div class="hint">送給所有開過通知的人，不管今天有沒有打卡。</div>
+  </div>
+
+<script>
+const KEY='kamee.admin.v1';
+token.value=localStorage.getItem(KEY)||'';
+token.oninput=()=>localStorage.setItem(KEY,token.value);
+
+send.onclick=async()=>{
+  if(!token.value){ out.textContent='先填後台密碼'; return }
+  if(!confirm('現在送出通知給所有人？')) return;
+  send.disabled=true; out.textContent='送出中…';
+  try{
+    const res=await fetch('/api/broadcast',{method:'POST',
+      headers:{'content-type':'application/json','x-admin-token':token.value},
+      body:JSON.stringify({title:title.value,body:body.value})});
+    const d=await res.json();
+    out.textContent = res.status===401 ? '密碼錯了'
+      : res.ok ? `送出 ${d.sent} 筆，失敗 ${d.failed} 筆，清掉失效訂閱 ${d.removed} 筆`
+      : `失敗：${d.error||res.status}`;
+  }catch(e){ out.textContent='送不出去：'+e.message }
+  send.disabled=false;
+};
+</script>
+</body>
+</html>

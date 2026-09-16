@@ -81,8 +81,8 @@ export default {
             body: `之後每天 ${String(hour).padStart(2,'0')}:00 沒打卡就會提醒你`,
             url: '/'
           }), vapidFrom(env));
-        } catch {                       // 多半是 VAPID 金鑰沒設好
-          return json({ ok: false, error: 'push failed' }, 502);
+        } catch (e) {                   // 多半是 VAPID 金鑰沒設好或公私鑰不成對
+          return json({ ok: false, error: 'push failed', detail: String(e).slice(0, 160) }, 502);
         }
         if (status === 404 || status === 410) await env.SUBS.delete(KEY(uid));
         return json({ ok: status >= 200 && status < 300, status });
@@ -93,6 +93,19 @@ export default {
         if (!isUid(uid)) return json({ error: 'bad request' }, 400);
         await env.SUBS.delete(KEY(uid));
         return json({ ok: true });
+      }
+
+      // ponytail: 單一共用密碼，夠一個人用的後台；要多人再換成真的帳號
+      if (url.pathname === '/api/broadcast' && request.method === 'POST') {
+        if (!env.ADMIN_TOKEN || request.headers.get('x-admin-token') !== env.ADMIN_TOKEN)
+          return json({ error: 'unauthorized' }, 401);
+        const { title, body } = await readJson(request);
+        const payload = JSON.stringify({
+          title: String(title || 'KAMEE 打卡提醒').slice(0, 80),
+          body: String(body || '記得今天的保健品 🌿').slice(0, 160),
+          url: '/'
+        });
+        return json(await broadcast(env, payload));
       }
 
       if (url.pathname === '/api/checkin' && request.method === 'POST') {
@@ -114,6 +127,32 @@ export default {
   }
 };
 
+// 回傳 'sent' | 'removed' | 'failed'
+async function pushOne(env, name, rec, payload, vapid){
+  let status;
+  try { status = await sendPush(rec.subscription, payload, vapid) }
+  catch { return 'failed' }
+  if (status === 404 || status === 410) { await env.SUBS.delete(name); return 'removed' }
+  return status >= 200 && status < 300 ? 'sent' : 'failed';
+}
+
+// 後台那顆按鈕：不管有沒有打卡，現在就送給所有訂閱者
+export async function broadcast(env, payload){
+  const vapid = vapidFrom(env);
+  let cursor, sent = 0, removed = 0, failed = 0;
+  do {
+    const page = await env.SUBS.list({ prefix: 'sub:', cursor });
+    cursor = page.list_complete ? null : page.cursor;
+    for (const { name } of page.keys) {
+      const rec = await env.SUBS.get(name, 'json');
+      if (!rec?.subscription) continue;
+      const r = await pushOne(env, name, rec, payload, vapid);
+      if (r === 'sent') sent++; else if (r === 'removed') removed++; else failed++;
+    }
+  } while (cursor);
+  return { sent, removed, failed };
+}
+
 export async function remindAll(env){
   const vapid = vapidFrom(env);
   const payload = JSON.stringify({
@@ -132,13 +171,9 @@ export async function remindAll(env){
       const tz = rec?.tz || 'Asia/Taipei';
       const today = todayIn(tz);
       if (!needsReminder(rec, today, hourIn(tz))) continue;
-      let status;
-      try { status = await sendPush(rec.subscription, payload, vapid) }
-      catch { continue }
-      if (status === 404 || status === 410) {                      // 訂閱失效，清掉
-        await env.SUBS.delete(name); removed++; continue;
-      }
-      if (status >= 200 && status < 300) {
+      const r = await pushOne(env, name, rec, payload, vapid);
+      if (r === 'removed') { removed++; continue }
+      if (r === 'sent') {
         await env.SUBS.put(name, JSON.stringify({ ...rec, notified: today }));
         sent++;
       }

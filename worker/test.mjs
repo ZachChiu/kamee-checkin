@@ -1,7 +1,7 @@
 // node worker/test.mjs
 import assert from 'node:assert';
 import { encryptPayload, vapidHeader, _internal } from './push.mjs';
-import worker, { needsReminder, remindAll } from './index.mjs';
+import worker, { needsReminder, remindAll, broadcast } from './index.mjs';
 
 const { b64, concat, hkdf } = _internal;
 const enc = s => new TextEncoder().encode(s);
@@ -132,5 +132,23 @@ assert.ok(calls.every(c => c.len > 86), '內容有加密過');
 assert.strictEqual(store.has('sub:bbbbbbbb'), false, '410 要刪掉');
 assert.strictEqual(JSON.parse(store.get('sub:aaaaaaaa')).notified, today);
 assert.deepStrictEqual(await remindAll(env), { sent: 0, removed: 0 }, '同一天不重複提醒');
+
+/* ---- 6. 後台廣播 ---- */
+store.clear(); calls.length = 0;
+store.set('sub:eeeeeeee', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/ok' }, tz:TZ, hour: otherHour }));
+store.set('sub:ffffffff', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/gone' }, tz:TZ, lastCheckin: today }));
+const envAdmin = { ...env, ADMIN_TOKEN: 'secret123' };
+const bcast = (data, headers) => worker.fetch(new Request('https://app.test/api/broadcast',
+  { method:'POST', body: JSON.stringify(data), headers }), envAdmin);
+
+assert.strictEqual((await bcast({}, {})).status, 401, '沒帶密碼要擋');
+assert.strictEqual((await bcast({}, { 'x-admin-token':'wrong' })).status, 401, '密碼錯要擋');
+assert.strictEqual((await worker.fetch(new Request('https://app.test/api/broadcast',
+  { method:'POST', body:'{}', headers:{ 'x-admin-token':'secret123' } }), env)).status, 401, '沒設 ADMIN_TOKEN 時一律擋');
+
+const out = await (await bcast({ title:'嗨', body:'吃保健品' }, { 'x-admin-token':'secret123' })).json();
+assert.deepStrictEqual(out, { sent: 1, removed: 1, failed: 0 }, '不管時間和打卡狀態都送');
+assert.strictEqual(calls.length, 2);
+assert.strictEqual(store.has('sub:ffffffff'), false, '410 一樣清掉');
 
 console.log('worker ok');

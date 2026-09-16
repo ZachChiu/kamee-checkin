@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAMEE 90天健康計畫</title>
+<style>
+  :root{
+    --teal:#5FBFBF;
+    --teal-deep:#3EA6A6;
+    --teal-soft:#DDF1F1;
+    --cream:#FBF9F4;
+    --sand:#F0EBE0;
+    --ink:#2E4A4A;
+    --ink-soft:#8AA3A3;
+    --gold:#F2C14E;
+    --gold-soft:#FBECC7;
+    --line:#EAE6DC;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+    background:var(--cream);color:var(--ink);line-height:1.6;
+    display:flex;justify-content:center;min-height:100vh;padding:18px;
+  }
+  .phone{width:100%;max-width:400px;display:flex;flex-direction:column;gap:14px}
+
+  .topbar{display:flex;align-items:center;justify-content:center;padding:4px 0}
+  .logo{font-size:20px;font-weight:800;letter-spacing:.5px;color:var(--teal-deep)}
+  .logo span{color:var(--gold)}
+
+  .welcome{padding:0 4px}
+  .welcome h1{font-size:22px;font-weight:800;color:var(--ink)}
+  .welcome p{font-size:13.5px;color:var(--ink-soft)}
+
+  /* tabs */
+  .tabs{display:flex;background:#fff;border-radius:14px;padding:5px;box-shadow:0 4px 14px rgba(62,166,166,.08)}
+  .tab{flex:1;text-align:center;padding:9px;font-size:13.5px;font-weight:700;border-radius:10px;color:var(--ink-soft);cursor:pointer}
+  .tab.on{background:var(--teal-soft);color:var(--teal-deep)}
+
+  /* streak row */
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .stat{background:#fff;border-radius:18px;padding:20px 14px;text-align:center;box-shadow:0 6px 18px rgba(62,166,166,.08)}
+  .stat .ico{font-size:22px;margin-bottom:2px}
+  .stat .num{font-size:44px;font-weight:800;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .stat .lbl{font-size:13.5px;font-weight:700;margin-top:6px}
+  .stat .sub{font-size:11.5px;color:var(--ink-soft)}
+  .stat.streak .ico{color:var(--gold)}
+  .stat.best .ico{color:var(--teal)}
+
+  /* milestone */
+  .milestone{background:#fff;border-radius:16px;padding:16px 18px;box-shadow:0 6px 18px rgba(62,166,166,.08)}
+  .ms-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .ms-title{font-size:14px;font-weight:800;display:flex;align-items:center;gap:6px}
+  .ms-count{font-size:12px;color:var(--ink-soft);font-weight:700}
+  .ms-bar{height:8px;background:var(--sand);border-radius:99px;overflow:hidden}
+  .ms-bar>i{display:block;height:100%;width:28%;background:var(--teal);border-radius:99px;transition:width .7s}
+  .ms-note{font-size:11.5px;color:var(--ink-soft);margin-top:8px;text-align:center}
+
+  /* check-in button */
+  .btn{width:100%;border:none;cursor:pointer;background:var(--teal);color:#fff;
+    font-size:16.5px;font-weight:800;font-family:inherit;padding:16px;border-radius:14px;
+    box-shadow:0 6px 16px rgba(95,191,191,.38);transition:transform .15s,background .2s;letter-spacing:.5px}
+  .btn:active{transform:scale(.98)}
+  .btn.done{background:var(--gold-soft);color:var(--teal-deep);box-shadow:none;cursor:default}
+
+  /* calendar */
+  .cal{background:#fff;border-radius:18px;padding:16px 16px 20px;box-shadow:0 6px 18px rgba(62,166,166,.08)}
+  .cal-head{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:12px}
+  .cal-head .m{font-size:15px;font-weight:800}
+  .cal-head button{background:none;border:none;font-size:16px;color:var(--ink-soft);cursor:pointer;padding:2px 6px}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center}
+  .cal-grid .wd{font-size:11px;color:var(--ink-soft);font-weight:700;padding-bottom:4px}
+  .cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12.5px;
+    border-radius:50%;color:var(--ink);font-variant-numeric:tabular-nums}
+  .cell.empty{visibility:hidden}
+  .cell.done{background:var(--teal-deep);color:#fff;font-weight:700}
+  .cell.done.soft{background:var(--teal)}          /* alt shade */
+  .cell.today{background:var(--gold);color:#fff;font-weight:800;box-shadow:0 0 0 3px var(--gold-soft)}
+  .cell.future{color:#C9CFCF}
+
+  .legend{display:flex;justify-content:center;gap:16px;margin-top:14px;font-size:11px;color:var(--ink-soft)}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .dot.done{background:var(--teal-deep)}
+  .dot.today{background:var(--gold)}
+
+  .foot{text-align:center;font-size:11px;color:var(--ink-soft);padding:4px 0 10px;opacity:.8}
+  .enc{text-align:center;font-size:13px;color:var(--teal-deep);font-weight:700;min-height:18px;opacity:0;transition:opacity .4s}
+  .enc.show{opacity:1}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="topbar"><div class="logo">KA<span>ME</span>E</div></div>
+
+    <div class="welcome">
+      <h1>歡迎回來，Vivian！</h1>
+      <p>很開心又見到你 🌿</p>
+    </div>
+
+    <div class="tabs">
+      <div class="tab on">每日紀錄</div>
+      <div class="tab">我的獎勵</div>
+    </div>
+
+    <div class="row2">
+      <div class="stat streak">
+        <div class="ico">🔥</div>
+        <div class="num" id="cur">2</div>
+        <div class="lbl">連續天數</div>
+        <div class="sub">做得好，繼續保持！</div>
+      </div>
+      <div class="stat best">
+        <div class="ico">🏅</div>
+        <div class="num" id="best">6</div>
+        <div class="lbl">最佳紀錄</div>
+        <div class="sub">你很棒！</div>
+      </div>
+    </div>
+
+    <div class="milestone">
+      <div class="ms-top">
+        <div class="ms-title">📈 下一個里程碑</div>
+        <div class="ms-count" id="msCount">2 / 7 天</div>
+      </div>
+      <div class="ms-bar"><i id="msBar"></i></div>
+      <div class="ms-note" id="msNote">再 5 天達成 7 天里程碑！🎁</div>
+    </div>
+
+    <button class="btn" id="btn" onclick="checkIn()">我今天吃了 ✓</button>
+    <div class="enc" id="enc"></div>
+
+    <div class="cal">
+      <div class="cal-head">
+        <button>‹</button>
+        <div class="m">2025 年 11 月</div>
+        <button>›</button>
+      </div>
+      <div class="cal-grid" id="grid"></div>
+      <div class="legend">
+        <span><i class="dot done"></i>已打卡</span>
+        <span><i class="dot today"></i>今天</span>
+      </div>
+    </div>
+
+    <div class="foot">KAMEE 客製化保健品智能服務</div>
+  </div>
+
+<script>
+  let cur=2, best=6, msGoal=7;
+  const doneDays=[1,2,4,5,6,7,8,9]; // 已打卡的日期(示意)
+  const today=10;
+  const daysInMonth=30, firstWeekday=6; // 11月從週六開始(示意)
+
+  function renderCal(){
+    const g=document.getElementById('grid');
+    g.innerHTML='';
+    ['一','二','三','四','五','六','日'].forEach(w=>{
+      const e=document.createElement('div');e.className='wd';e.textContent=w;g.appendChild(e);
+    });
+    for(let i=0;i<firstWeekday;i++){const e=document.createElement('div');e.className='cell empty';g.appendChild(e);}
+    for(let d=1;d<=daysInMonth;d++){
+      const e=document.createElement('div');e.className='cell';e.textContent=d;
+      if(doneDays.includes(d)){e.classList.add('done'); if(d%2===0)e.classList.add('soft');}
+      else if(d===today){e.classList.add('today');}
+      else if(d>today){e.classList.add('future');}
+      g.appendChild(e);
+    }
+  }
+  function renderStats(){
+    document.getElementById('cur').textContent=cur;
+    document.getElementById('best').textContent=best;
+    const p=Math.min(cur/msGoal*100,100);
+    document.getElementById('msBar').style.width=p+'%';
+    document.getElementById('msCount').textContent=`${cur} / ${msGoal} 天`;
+    const left=Math.max(msGoal-cur,0);
+    document.getElementById('msNote').textContent= left>0?`再 ${left} 天達成 ${msGoal} 天里程碑！🎁`:`已達成 ${msGoal} 天里程碑！🎉`;
+  }
+  function checkIn(){
+    const b=document.getElementById('btn');
+    if(b.classList.contains('done'))return;
+    cur++; if(cur>best)best=cur;
+    if(!doneDays.includes(today))doneDays.push(today);
+    b.classList.add('done');
+    b.innerHTML='今天已完成 ✓';
+    const e=document.getElementById('enc');
+    e.textContent=`太棒了！這是你第 ${cur} 天的堅持 💪`;
+    e.classList.add('show');
+    renderStats();renderCal();
+  }
+  renderStats();renderCal();
+</script>
+</body>
+</html>

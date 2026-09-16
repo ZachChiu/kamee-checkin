@@ -6,6 +6,9 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), { status
 // 台灣當天日期；cron 固定在台灣 09:00 觸發
 // ponytail: 單一時區。要服務其他時區就改成每小時跑一次 cron，用 rec.tz 挑出當地剛好 09:00 的人
 const todayIn = tz => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+const hourIn = tz => Number(new Intl.DateTimeFormat('en-GB',
+  { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+const DEFAULT_HOUR = 9;
 
 const KEY = uid => `sub:${uid}`;
 const isUid = v => typeof v === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(v);
@@ -23,9 +26,18 @@ function validSubscription(s){
              && typeof k.auth === 'string' && k.auth.length <= 100;
 }
 
-export function needsReminder(rec, today){
-  return !!rec?.subscription && rec.lastCheckin !== today && rec.notified !== today;
+export function needsReminder(rec, today, hour){
+  if (!rec?.subscription) return false;
+  if ((rec.hour ?? DEFAULT_HOUR) !== hour) return false;        // 還沒到這個人設定的時間
+  return rec.lastCheckin !== today && rec.notified !== today;
 }
+
+const vapidFrom = env => ({
+  publicKey: env.VAPID_PUBLIC_KEY,
+  privateKey: env.VAPID_PRIVATE_KEY,
+  subject: env.VAPID_SUBJECT || 'mailto:noreply@example.com'
+});
+const isHour = v => Number.isInteger(v) && v >= 0 && v <= 23;
 
 async function readJson(request, limit = 4096){
   const body = await request.text();
@@ -43,14 +55,37 @@ export default {
         return json({ vapidPublicKey: env.VAPID_PUBLIC_KEY || null });
 
       if (url.pathname === '/api/subscribe' && request.method === 'POST') {
-        const { uid, subscription, tz } = await readJson(request);
+        const { uid, subscription, tz, hour } = await readJson(request);
         if (!isUid(uid) || !validSubscription(subscription)) return json({ error: 'bad request' }, 400);
         const rec = await env.SUBS.get(KEY(uid), 'json') || {};
         await env.SUBS.put(KEY(uid), JSON.stringify({
           ...rec, subscription, tz: typeof tz === 'string' ? tz.slice(0, 64) : 'Asia/Taipei',
+          hour: isHour(hour) ? hour : (rec.hour ?? DEFAULT_HOUR),
           updated: new Date().toISOString()
         }));
         return json({ ok: true });
+      }
+
+      // 開啟通知後馬上送一則，讓使用者當場知道有沒有通
+      // ponytail: 沒有節流，uid 是猜不到的隨機字串，內容也固定；真的被亂打再加 rate limit
+      if (url.pathname === '/api/test' && request.method === 'POST') {
+        const { uid } = await readJson(request);
+        if (!isUid(uid)) return json({ error: 'bad request' }, 400);
+        const rec = await env.SUBS.get(KEY(uid), 'json');
+        if (!rec?.subscription) return json({ error: 'not subscribed' }, 404);
+        const hour = rec.hour ?? DEFAULT_HOUR;
+        let status;
+        try {
+          status = await sendPush(rec.subscription, JSON.stringify({
+            title: '通知開好了 🔔',
+            body: `之後每天 ${String(hour).padStart(2,'0')}:00 沒打卡就會提醒你`,
+            url: '/'
+          }), vapidFrom(env));
+        } catch {                       // 多半是 VAPID 金鑰沒設好
+          return json({ ok: false, error: 'push failed' }, 502);
+        }
+        if (status === 404 || status === 410) await env.SUBS.delete(KEY(uid));
+        return json({ ok: status >= 200 && status < 300, status });
       }
 
       if (url.pathname === '/api/subscribe' && request.method === 'DELETE') {
@@ -80,11 +115,7 @@ export default {
 };
 
 export async function remindAll(env){
-  const vapid = {
-    publicKey: env.VAPID_PUBLIC_KEY,
-    privateKey: env.VAPID_PRIVATE_KEY,
-    subject: env.VAPID_SUBJECT || 'mailto:noreply@example.com'
-  };
+  const vapid = vapidFrom(env);
   const payload = JSON.stringify({
     title: 'KAMEE 打卡提醒',
     body: '今天還沒打卡，記得吃保健品 🌿',
@@ -98,8 +129,9 @@ export async function remindAll(env){
     cursor = page.list_complete ? null : page.cursor;
     for (const { name } of page.keys) {
       const rec = await env.SUBS.get(name, 'json');
-      const today = todayIn(rec?.tz || 'Asia/Taipei');
-      if (!needsReminder(rec, today)) continue;
+      const tz = rec?.tz || 'Asia/Taipei';
+      const today = todayIn(tz);
+      if (!needsReminder(rec, today, hourIn(tz))) continue;
       let status;
       try { status = await sendPush(rec.subscription, payload, vapid) }
       catch { continue }

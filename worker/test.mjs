@@ -46,13 +46,17 @@ assert.strictEqual(claims.sub, 'mailto:test@example.com');
 assert.ok(claims.exp > Date.now()/1000 && claims.exp <= Date.now()/1000 + 12*3600 + 5, 'exp 在 12 小時內');
 assert.ok(await subtle.verify({ name:'ECDSA', hash:'SHA-256' }, vk.publicKey, b64.decode(sig), enc(`${h}.${p}`)), '簽章可驗證');
 
-/* ---- 3. 要不要提醒 ---- */
+/* ---- 3. 要不要提醒（看時間、看有沒有打卡） ---- */
 const sub = { endpoint:'https://x/y', keys };
-assert.strictEqual(needsReminder({ subscription: sub }, '2026-09-16'), true);
-assert.strictEqual(needsReminder({ subscription: sub, lastCheckin:'2026-09-16' }, '2026-09-16'), false);
-assert.strictEqual(needsReminder({ subscription: sub, notified:'2026-09-16' }, '2026-09-16'), false);
-assert.strictEqual(needsReminder({ subscription: sub, lastCheckin:'2026-09-15' }, '2026-09-16'), true);
-assert.strictEqual(needsReminder({}, '2026-09-16'), false);
+assert.strictEqual(needsReminder({ subscription: sub }, '2026-09-16', 9), true, '沒設時間就用預設 09:00');
+assert.strictEqual(needsReminder({ subscription: sub }, '2026-09-16', 8), false, '還沒到時間');
+assert.strictEqual(needsReminder({ subscription: sub, hour: 21 }, '2026-09-16', 21), true);
+assert.strictEqual(needsReminder({ subscription: sub, hour: 21 }, '2026-09-16', 9), false);
+assert.strictEqual(needsReminder({ subscription: sub, hour: 0 }, '2026-09-16', 0), true, '午夜 0 點要當成有效設定');
+assert.strictEqual(needsReminder({ subscription: sub, lastCheckin:'2026-09-16' }, '2026-09-16', 9), false);
+assert.strictEqual(needsReminder({ subscription: sub, notified:'2026-09-16' }, '2026-09-16', 9), false);
+assert.strictEqual(needsReminder({ subscription: sub, lastCheckin:'2026-09-15' }, '2026-09-16', 9), true);
+assert.strictEqual(needsReminder({}, '2026-09-16', 9), false);
 
 /* ---- 4. API 路由與輸入檢查 ---- */
 const store = new Map();
@@ -68,14 +72,39 @@ const env = {
 const call = (path, init) => worker.fetch(new Request('https://app.test' + path, init), env);
 const post = (path, data) => call(path, { method:'POST', body: JSON.stringify(data) });
 
-assert.strictEqual((await call('/api/config')).status, 200);
+const calls = [];
+let pushStatus = 201;
+globalThis.fetch = async (endpoint, init) => {
+  calls.push({ endpoint, ttl: init.headers.TTL, cencoding: init.headers['Content-Encoding'],
+    auth: init.headers.Authorization.slice(0, 8), len: init.body.length });
+  return new Response(null, { status: endpoint.endsWith('/gone') ? 410 : pushStatus });
+};
+
 assert.strictEqual((await (await call('/api/config')).json()).vapidPublicKey, vapid.publicKey);
 assert.strictEqual((await call('/nope')).status, 404);
 assert.strictEqual((await post('/api/subscribe', { uid:'bad uid!', subscription: sub })).status, 400);
 assert.strictEqual((await post('/api/subscribe', { uid:'abcd1234', subscription:{ endpoint:'http://x', keys } })).status, 400, '非 https 要擋');
 assert.strictEqual((await post('/api/subscribe', { uid:'abcd1234', subscription:{ endpoint:'https://x' } })).status, 400, '缺 keys 要擋');
+
 assert.strictEqual((await post('/api/subscribe', { uid:'abcd1234', subscription: sub, tz:'Asia/Taipei' })).status, 200);
-assert.ok(store.has('sub:abcd1234'));
+assert.strictEqual(JSON.parse(store.get('sub:abcd1234')).hour, 9, '沒帶 hour 用預設');
+assert.strictEqual((await post('/api/subscribe', { uid:'abcd1234', subscription: sub, hour: 21 })).status, 200);
+assert.strictEqual(JSON.parse(store.get('sub:abcd1234')).hour, 21, '改時間');
+assert.strictEqual((await post('/api/subscribe', { uid:'abcd1234', subscription: sub, hour: 99 })).status, 200);
+assert.strictEqual(JSON.parse(store.get('sub:abcd1234')).hour, 21, '不合法的時間不覆蓋原設定');
+
+// 測試通知
+assert.strictEqual((await post('/api/test', { uid:'nobody12' })).status, 404, '沒訂閱過不能送');
+const before = calls.length;
+const test1 = await (await post('/api/test', { uid:'abcd1234' })).json();
+assert.strictEqual(test1.ok, true);
+assert.strictEqual(calls.length, before + 1, '真的送出一則');
+pushStatus = 410;
+assert.strictEqual((await (await post('/api/test', { uid:'abcd1234' })).json()).ok, false);
+assert.strictEqual(store.has('sub:abcd1234'), false, '410 要清掉訂閱');
+pushStatus = 201;
+
+assert.strictEqual((await post('/api/subscribe', { uid:'abcd1234', subscription: sub })).status, 200);
 assert.strictEqual((await post('/api/checkin', { uid:'abcd1234', date:'16/09/2026' })).status, 400, '日期格式要擋');
 assert.strictEqual((await post('/api/checkin', { uid:'abcd1234', date:'2026-09-16' })).status, 200);
 assert.strictEqual(JSON.parse(store.get('sub:abcd1234')).lastCheckin, '2026-09-16');
@@ -83,21 +112,21 @@ assert.strictEqual((await (await post('/api/checkin', { uid:'nobody12', date:'20
 assert.strictEqual((await call('/api/subscribe?uid=abcd1234', { method:'DELETE' })).status, 200);
 assert.strictEqual(store.size, 0);
 
-/* ---- 5. 排程：送出、記錄、清掉失效訂閱 ---- */
-const today = new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Taipei' }).format(new Date());
-store.set('sub:aaaaaaaa', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/ok' }, tz:'Asia/Taipei' }));
-store.set('sub:bbbbbbbb', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/gone' }, tz:'Asia/Taipei' }));
-store.set('sub:cccccccc', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/ok2' }, tz:'Asia/Taipei', lastCheckin: today }));
+/* ---- 5. 排程：只送給「現在剛好是設定時間」且今天沒打卡的人 ---- */
+const TZ = 'Asia/Taipei';
+const today = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
+const nowHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour:'2-digit', hourCycle:'h23' }).format(new Date()));
+const otherHour = (nowHour + 5) % 24;
 
-const calls = [];
-globalThis.fetch = async (endpoint, init) => {
-  calls.push({ endpoint, ttl: init.headers.TTL, cencoding: init.headers['Content-Encoding'],
-    auth: init.headers.Authorization.slice(0, 8), len: init.body.length });
-  return new Response(null, { status: endpoint.endsWith('/gone') ? 410 : 201 });
-};
+store.set('sub:aaaaaaaa', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/ok' }, tz:TZ, hour: nowHour }));
+store.set('sub:bbbbbbbb', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/gone' }, tz:TZ, hour: nowHour }));
+store.set('sub:cccccccc', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/ok2' }, tz:TZ, hour: nowHour, lastCheckin: today }));
+store.set('sub:dddddddd', JSON.stringify({ subscription:{ ...sub, endpoint:'https://push.test/ok3' }, tz:TZ, hour: otherHour }));
+
+calls.length = 0;
 const result = await remindAll(env);
 assert.deepStrictEqual(result, { sent: 1, removed: 1 });
-assert.strictEqual(calls.length, 2, '今天打過卡的人不送');
+assert.strictEqual(calls.length, 2, '打過卡的人和還沒到時間的人都不送');
 assert.ok(calls.every(c => c.ttl === '86400' && c.cencoding === 'aes128gcm' && c.auth === 'vapid t='));
 assert.ok(calls.every(c => c.len > 86), '內容有加密過');
 assert.strictEqual(store.has('sub:bbbbbbbb'), false, '410 要刪掉');

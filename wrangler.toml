@@ -6,9 +6,9 @@ compatibility_date = "2026-09-16"
 [assets]
 directory = "./public"
 
-# UTC 01:00 = 台灣 09:00
+# 每小時跑一次，Worker 依每個人設定的時間與時區決定要不要送
 [triggers]
-crons = ["0 1 * * *"]
+crons = ["0 * * * *"]
 
 [vars]
 VAPID_SUBJECT = "mailto:awdx8326@gmail.com"

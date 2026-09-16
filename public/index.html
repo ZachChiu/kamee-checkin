@@ -119,6 +119,10 @@
     background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
   .sw.on{background:var(--teal)}
   .sw.on::after{transform:translateX(19px)}
+  .remind select{font-family:inherit;font-size:13px;font-weight:800;color:var(--teal-deep);
+    border:none;background:var(--teal-soft);border-radius:8px;padding:2px 2px;cursor:pointer}
+  .linkbtn{background:none;border:none;font-family:inherit;font-size:12px;color:var(--ink-soft);
+    text-decoration:underline;cursor:pointer;align-self:center;margin-top:10px}
 
   /* modal */
   .mask{position:fixed;inset:0;background:rgba(46,74,74,.45);display:flex;align-items:center;
@@ -184,11 +188,12 @@
 
       <div class="remind">
         <div>
-          <div class="t">🔔 每天 09:00 提醒</div>
+          <div class="t">🔔 每天 <select id="remindHour"></select> 提醒</div>
           <div class="s" id="remindSub">還沒開啟</div>
         </div>
         <button class="sw" id="remindSw" aria-label="開啟每日提醒"></button>
       </div>
+      <button class="linkbtn hide" id="testBtn">送一則測試通知</button>
 
       <div class="cal" style="margin-top:14px">
         <div class="cal-head">
@@ -226,8 +231,12 @@
 <script>
 const KEY='kamee.checkins.v1', NAMEKEY='kamee.name.v1',
       REMIND_KEY='kamee.remind.v1', INSTALL_KEY='kamee.install.v1', ASKED_KEY='kamee.notifyAsked.v1',
-      UID_KEY='kamee.uid.v1', PUSH_KEY='kamee.push.v1';
-const REMIND_HOUR=9;
+      UID_KEY='kamee.uid.v1', PUSH_KEY='kamee.push.v1', HOUR_KEY='kamee.hour.v1';
+const DEFAULT_HOUR=9;
+const remindHourOf=()=>{
+  const raw=localStorage.getItem(HOUR_KEY), v=Number(raw);
+  return raw!==null&&Number.isInteger(v)&&v>=0&&v<=23 ? v : DEFAULT_HOUR;
+};
 const MILESTONES=[
   {d:7, ico:'🎁',name:'7 天禮',   code:'KAMEE7',  gift:'下次回購 9 折'},
   {d:14,ico:'🍵',name:'14 天禮',  code:'KAMEE14', gift:'加贈體驗包 1 包'},
@@ -299,7 +308,6 @@ function checkIn(){
   renderStats();renderCal();
   const m=earnedMilestone(streaks(done).cur,MILESTONES);
   if(m) reward(m);
-  else if(localStorage.getItem(ASKED_KEY)!=='1') askNotify();
 }
 
 btn.onclick=checkIn;
@@ -346,7 +354,8 @@ async function subscribePush(){
     if(sub && !sub.options?.applicationServerKey) { await sub.unsubscribe(); sub=null }   // 換過金鑰
     sub=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
     const r=await api('/api/subscribe',{method:'POST',body:JSON.stringify({
-      uid, subscription:sub.toJSON(), tz:Intl.DateTimeFormat().resolvedOptions().timeZone })});
+      uid, subscription:sub.toJSON(), tz:Intl.DateTimeFormat().resolvedOptions().timeZone,
+      hour:remindHourOf() })});
     localStorage.setItem(PUSH_KEY, r?.ok?'on':'off');
     return !!r?.ok;
   }catch{ localStorage.setItem(PUSH_KEY,'off'); return false }
@@ -372,7 +381,10 @@ function openModal({ico,title,body,code,ok,onOk,no,onNo}){
   mNo.onclick=()=>{closeModal(); onNo&&onNo()};
   mask.classList.remove('hide');
 }
-function closeModal(){mask.classList.add('hide');modalOpen=false}
+function closeModal(){
+  mask.classList.add('hide'); modalOpen=false;
+  if(pendingInstall) setTimeout(tryInstall,800);
+}
 
 function reward(m){
   openModal({ico:m.ico,title:`連續 ${m.d} 天，達成！`,
@@ -386,12 +398,36 @@ const canNotify='Notification' in window;
 const remindOn=()=>localStorage.getItem(REMIND_KEY)==='on'&&canNotify&&Notification.permission==='granted';
 
 function renderRemind(){
+  if(!remindHour.options.length){
+    for(let h=0;h<24;h++){
+      const o=document.createElement('option');
+      o.value=h; o.textContent=String(h).padStart(2,'0')+':00';
+      remindHour.appendChild(o);
+    }
+  }
+  remindHour.value=remindHourOf();
   remindSw.classList.toggle('on',remindOn());
+  testBtn.classList.toggle('hide',!(remindOn()&&pushOn()));
+  const hh=String(remindHourOf()).padStart(2,'0');
   remindSub.textContent = !canNotify ? '這個瀏覽器不支援通知'
     : Notification.permission==='denied' ? '已被封鎖，請到瀏覽器設定開啟'
-    : remindOn() ? (pushOn()?'開啟中，每天 09:00 提醒你':'開啟中，但只在這個頁面開著時提醒')
+    : remindOn() ? (pushOn()?`開啟中，每天 ${hh}:00 提醒你`:'開啟中，但只在這個頁面開著時提醒')
     : '還沒開啟';
 }
+
+remindHour.onchange=async()=>{
+  localStorage.setItem(HOUR_KEY,remindHour.value);
+  schedule(); renderRemind();
+  if(pushOn()) await subscribePush();          // 把新的時間同步給伺服器
+};
+
+testBtn.onclick=async()=>{
+  remindSub.textContent='送出中…';
+  const r=await api('/api/test',{method:'POST',body:JSON.stringify({uid})});
+  remindSub.textContent = r?.ok ? '已送出，通知應該馬上會跳出來'
+    : '送不出去：訂閱失效或伺服器金鑰沒設好';
+  setTimeout(renderRemind,4000);
+};
 
 async function enableRemind(){
   if(!canNotify) return;
@@ -405,12 +441,15 @@ async function enableRemind(){
     try{ await reg.periodicSync.register('daily-checkin',{minInterval:12*60*60*1000}) }catch{}
   }
   schedule(); renderRemind();
-  if(pushOn()&&done.has(todayStr)) api('/api/checkin',{method:'POST',body:JSON.stringify({uid,date:todayStr})});
+  if(pushOn()){
+    api('/api/test',{method:'POST',body:JSON.stringify({uid})});     // 當場證明通知會到
+    if(done.has(todayStr)) api('/api/checkin',{method:'POST',body:JSON.stringify({uid,date:todayStr})});
+  }
 }
 
 function nextRemindAt(){
   const now=new Date(), t=new Date(now);
-  t.setHours(REMIND_HOUR,0,0,0);
+  t.setHours(remindHourOf(),0,0,0);
   if(t<=now) t.setDate(t.getDate()+1);
   return t;
 }
@@ -436,9 +475,9 @@ remindSw.onclick=()=>{
 function askNotify(){
   if(!canNotify||Notification.permission!=='default'||modalOpen) return;
   localStorage.setItem(ASKED_KEY,'1');
-  openModal({ico:'🔔',title:'每天早上提醒你',
-    body:'早上 9:00 提醒打卡，避免斷了連續紀錄。',ok:'開啟提醒',no:'先不要',
-    onOk:enableRemind});
+  openModal({ico:'🔔',title:'每天提醒你打卡',
+    body:`預設 ${String(remindHourOf()).padStart(2,'0')}:00 提醒，時間之後可以自己改。`,
+    ok:'開啟提醒',no:'先不要',onOk:enableRemind});
 }
 
 /* ---------- 加到主畫面 ---------- */
@@ -446,8 +485,10 @@ const standalone=matchMedia('(display-mode: standalone)').matches||navigator.sta
 const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
 let deferredPrompt=null;
 addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;queueInstall()});
-// 慢兩秒再跳，先讓使用者看到今天的狀態；有別的 modal 開著就等下次進來
-const queueInstall=()=>setTimeout(askInstall,2000);
+// 通知的 modal 優先，安裝提示等它關掉再跳
+let pendingInstall=false;
+const queueInstall=()=>{pendingInstall=true;setTimeout(tryInstall,2000)};
+function tryInstall(){ if(!pendingInstall||modalOpen) return; pendingInstall=false; askInstall() }
 
 function askInstall(){
   if(standalone||localStorage.getItem(INSTALL_KEY)==='no'||modalOpen) return;
@@ -475,6 +516,7 @@ function syncSw(){
 }
 
 renderName();renderStats();renderCal();renderRemind();schedule();
+setTimeout(askNotify,1200);
 if(done.has(todayStr)) syncSw();
 
 // 跨過午夜時重新整理，避免日期停在昨天

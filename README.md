@@ -31,10 +31,16 @@ cron 每天台灣時間 09:00 對當天沒打卡的人送 Web Push。
 5. `npx wrangler secret put VAPID_PRIVATE_KEY` → 貼上第 2 步的私鑰
 6. `npm run deploy` 再跑一次
 
-cron 寫在 `wrangler.toml` 的 `triggers`，部署時一併註冊。
+cron 寫在 `wrangler.toml` 的 `triggers`（每小時一次），部署時一併註冊。
+`VAPID_PRIVATE_KEY` 沒設好的話，`/api/test` 會回 502，前端會顯示送不出去。
 
 ## 提醒的實際行為
 
+- 進站 1.2 秒後跳自家的 modal 問要不要開提醒，使用者按下去才觸發瀏覽器的權限框（Safari、Firefox 只接受
+  由點擊觸發的權限請求，自動跳會被拒）。按過「先不要」就不再問。
+- 開啟成功後立刻送一則測試通知，開關下方也有「送一則測試通知」可以隨時重送。
+- 時間可以自己選，只支援整點，預設 09:00，存在 KV 的 `hour`。cron 每小時跑一次，
+  Worker 依每個人的時區換算當地小時，對到才送。
 - 開了提醒且訂閱成功：由 Worker 的 cron 推播，關掉頁面也會收到。cron 觸發時間有分鐘級誤差。
 - 訂閱失敗或站台沒有後端（例如純靜態託管）：自動降級成前景計時器，只在頁面開著時提醒。
 - iOS 要先「加入主畫面」（16.4 以上）才拿得到通知權限。
@@ -42,7 +48,7 @@ cron 寫在 `wrangler.toml` 的 `triggers`，部署時一併註冊。
 
 ## 資料
 
-KV 的 `sub:<uid>` 存 `{subscription, tz, lastCheckin, notified}`。uid 是前端第一次開啟時產生的
+KV 的 `sub:<uid>` 存 `{subscription, tz, hour, lastCheckin, notified}`。uid 是前端第一次開啟時產生的
 隨機字串，存在瀏覽器，沒有帳號系統，換裝置就是新的人。打卡紀錄本身仍在 localStorage，
 KV 只留判斷要不要提醒所需的最後打卡日。
 

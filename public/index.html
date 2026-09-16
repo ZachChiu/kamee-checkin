@@ -342,6 +342,8 @@ const api=(path,init={})=>fetch(path,{headers:{'content-type':'application/json'
 const pushOn=()=>localStorage.getItem(PUSH_KEY)==='on';
 const b64ToBytes=s=>{const t=(s+'='.repeat((4-s.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/');
   return Uint8Array.from(atob(t),c=>c.charCodeAt(0))};
+const bytesToB64=b=>btoa(String.fromCharCode(...new Uint8Array(b)))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
 // 訂閱失敗不擋使用者，前景計時器照常運作
 async function subscribePush(){
@@ -351,7 +353,10 @@ async function subscribePush(){
     const reg=await navigator.serviceWorker.ready;
     const key=b64ToBytes(cfg.vapidPublicKey);
     let sub=await reg.pushManager.getSubscription();
-    if(sub && !sub.options?.applicationServerKey) { await sub.unsubscribe(); sub=null }   // 換過金鑰
+    if(sub){                                        // 伺服器換過 VAPID 金鑰的話，舊訂閱送不出去
+      const cur=sub.options?.applicationServerKey;
+      if(!cur||bytesToB64(cur)!==cfg.vapidPublicKey){ await sub.unsubscribe(); sub=null }
+    }
     sub=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
     const r=await api('/api/subscribe',{method:'POST',body:JSON.stringify({
       uid, subscription:sub.toJSON(), tz:Intl.DateTimeFormat().resolvedOptions().timeZone,
